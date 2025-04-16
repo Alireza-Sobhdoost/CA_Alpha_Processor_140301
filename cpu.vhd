@@ -1,5 +1,5 @@
 -- ===========================
--- cpu.vhd (Top-level CPU with Separate Instruction Fetch Memory Read)
+-- cpu.vhd (Top-level CPU with support for LD and ST)
 -- ===========================
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -14,15 +14,12 @@ end cpu;
 
 architecture Structural of cpu is
 
-    -- Define the FSM state for instruction fetch and decode/execute
-    type state_type is (FETCH1, FETCH2, DECODE_EXEC);
+    type state_type is (FETCH1, FETCH2, EXECUTE);
     signal state       : state_type := FETCH1;
 
-    -- Program counter and instruction register
     signal pc_val      : std_logic_vector(7 downto 0) := (others => '0');
     signal instr       : std_logic_vector(15 downto 0);
 
-    -- Decoded instruction fields (from the instruction decoder)
     signal opcode       : std_logic_vector(3 downto 0);
     signal rd, rs1, rs2 : std_logic_vector(1 downto 0);
     signal imm4         : std_logic_vector(3 downto 0);
@@ -30,18 +27,14 @@ architecture Structural of cpu is
     signal imm8         : std_logic_vector(7 downto 0);
     signal se_imm8      : std_logic_vector(7 downto 0);
 
-    -- Memory interface signals
     signal mem_addr     : std_logic_vector(7 downto 0);
     signal mem_data_in  : std_logic_vector(7 downto 0);
     signal mem_data_out : std_logic_vector(7 downto 0);
-    -- Instead of a single mem_read, we split it:
-    signal fetch_mem_read : std_logic := '0';  -- used by instruction fetch FSM
-    signal data_mem_read  : std_logic := '0';  -- used by control unit for LD instructions
-    signal mem_write      : std_logic := '0';
-    -- The actual mem_read that goes to memory is the OR of both:
+    signal mem_write    : std_logic := '0';
+    signal fetch_mem_read : std_logic := '0';
+    signal data_mem_read  : std_logic := '0';
     signal mem_read       : std_logic;
 
-    -- Datapath signals (register file, ALU, control unit outputs)
     signal reg_data1, reg_data2 : std_logic_vector(7 downto 0);
     signal alu_in2              : std_logic_vector(7 downto 0);
     signal alu_result           : std_logic_vector(7 downto 0);
@@ -52,7 +45,8 @@ architecture Structural of cpu is
     signal pc_load     : std_logic;
     signal pc_next     : std_logic_vector(7 downto 0);
 
-    -- Component declarations
+    signal writeback_data : std_logic_vector(7 downto 0);
+
     component memory is
         Port (
             clk       : in  std_logic;
@@ -81,7 +75,7 @@ architecture Structural of cpu is
         Port (
             opcode      : in  std_logic_vector(3 downto 0);
             reg_write   : out std_logic;
-            mem_read    : out std_logic;  -- for data load instructions
+            mem_read    : out std_logic;
             mem_write   : out std_logic;
             alu_src     : out std_logic;
             alu_op      : out std_logic_vector(3 downto 0);
@@ -124,91 +118,70 @@ architecture Structural of cpu is
     end component;
 
 begin
-
-    -- Combine the two memory read signals.
     mem_read <= fetch_mem_read or data_mem_read;
 
-    -------------------------------
-    -- Instantiate Memory
-    -------------------------------
     mem_inst: memory port map (
-        clk       => clk,
-        addr      => mem_addr,
-        data_in   => mem_data_in,
-        data_out  => mem_data_out,
-        mem_read  => mem_read,
+        clk => clk,
+        addr => mem_addr,
+        data_in => mem_data_in,
+        data_out => mem_data_out,
+        mem_read => mem_read,
         mem_write => mem_write
     );
 
-    -------------------------------
-    -- Instruction Decoder
-    -------------------------------
     decoder: instruction_decoder port map (
-        instr   => instr,
-        opcode  => opcode,
-        rd      => rd,
-        rs1     => rs1,
-        rs2     => rs2,
-        imm4    => imm4,
-        imm6    => imm6,
-        imm8    => imm8
+        instr => instr,
+        opcode => opcode,
+        rd => rd,
+        rs1 => rs1,
+        rs2 => rs2,
+        imm4 => imm4,
+        imm6 => imm6,
+        imm8 => imm8
     );
 
-    -------------------------------
-    -- Control Unit
-    -------------------------------
     control: control_unit port map (
-        opcode      => opcode,
-        reg_write   => reg_write,
-        mem_read    => data_mem_read,   -- Connect to separate data read signal
-        mem_write   => mem_write,
-        alu_src     => alu_src,
-        alu_op      => alu_op,
-        branch      => branch,
+        opcode => opcode,
+        reg_write => reg_write,
+        mem_read => data_mem_read,
+        mem_write => mem_write,
+        alu_src => alu_src,
+        alu_op => alu_op,
+        branch => branch,
         branch_zero => branch_zero,
-        branch_nz   => branch_nz
+        branch_nz => branch_nz
     );
 
-    -------------------------------
-    -- Register File
-    -------------------------------
+    writeback_data <= alu_result when opcode /= "1010" else mem_data_out;
+
     regfile: register_file port map (
-        clk       => clk,
-        rs1       => rs1,
-        rs2       => rs2,
-        rd        => rd,
-        we        => reg_write,
-        data_in   => mem_data_out,  -- For example, writing back data from memory
+        clk => clk,
+        rs1 => rs1,
+        rs2 => rs2,
+        rd => rd,
+        we => reg_write,
+        data_in => writeback_data,
         data_out1 => reg_data1,
         data_out2 => reg_data2
     );
 
-    -------------------------------
-    -- ALU and Operand Multiplexing
-    -------------------------------
     alu_in2 <= reg_data2 when alu_src = '0' else std_logic_vector(resize(unsigned(imm4), 8));
 
     alu_inst: alu port map (
-        A      => reg_data1,
-        B      => alu_in2,
+        A => reg_data1,
+        B => alu_in2,
         alu_op => alu_op,
         result => alu_result,
-        zero   => zero,
-        carry  => carry,
-        sign   => sign
+        zero => zero,
+        carry => carry,
+        sign => sign
     );
 
-    -------------------------------
-    -- Sign Extension for Branching Immediate
-    -------------------------------
     signext: sign_extend port map (
-        imm_in  => imm8,
+        imm_in => imm8,
         imm_out => se_imm8
     );
 
-    -------------------------------
-    -- Instruction Fetch / Decode / Execute FSM
-    -------------------------------
     process(clk, reset)
     begin
         if reset = '1' then
@@ -222,17 +195,16 @@ begin
                     fetch_mem_read <= '1';
                     mem_write      <= '0';
                     state          <= FETCH2;
+
                 when FETCH2 =>
-                    -- Read first byte (MSB) of the instruction
                     instr(15 downto 8) <= mem_data_out;
                     mem_addr       <= std_logic_vector(unsigned(pc_val) + 1);
-                    state          <= DECODE_EXEC;
-                when DECODE_EXEC =>
-                    -- Read second byte (LSB) of the instruction
+                    state          <= EXECUTE;
+
+                when EXECUTE =>
                     instr(7 downto 0) <= mem_data_out;
-                    fetch_mem_read <= '0';  -- Turn off instruction fetch read
-                    -- Execute phase: Here you would call your decode & execute logic
-                    -- For now, we'll simply update the PC.
+                    fetch_mem_read <= '0';
+
                     pc_load <= branch or (branch_zero and zero) or (branch_nz and (not zero));
                     pc_next <= std_logic_vector(unsigned(pc_val) + unsigned(se_imm8));
                     if pc_load = '1' then
@@ -240,18 +212,17 @@ begin
                     else
                         pc_val <= std_logic_vector(unsigned(pc_val) + 2);
                     end if;
+
+                    -- Address for LD/ST comes from ALU
+                    if opcode = "1010" or opcode = "1011" then
+                        mem_addr <= alu_result;
+                    end if;
+
                     state <= FETCH1;
             end case;
         end if;
     end process;
 
-    -------------------------------
-    -- Data Memory Write Path (for store instructions, etc.)
-    -------------------------------
-    -- For this example, we assume that when a store happens,
-    -- the register file output (reg_data1) is written to memory at the address given by the ALU result.
     mem_data_in <= reg_data1;
-    -- Note: mem_addr is already used by the FSM during instruction fetch.
-    -- In a real CPU, you would need to time-multiplex the unified memory or use separate memories.
 
 end Structural;
