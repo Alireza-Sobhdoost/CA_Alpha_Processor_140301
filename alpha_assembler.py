@@ -79,9 +79,12 @@ def main():
         for line in f:
             code = assemble_line(line)
             if code is not None:
-                lines.append(f"{code:04X}")
+                print(bin(code))
+                lines.append(f'{str(bin(code))[2:10]}')
+                lines.append(f'{str(bin(code))[10:]}')
 
-    with open("program.hex", "w") as f:
+
+    with open("program.bin", "w") as f:
         for l in lines:
             f.write(l + "\n")
 

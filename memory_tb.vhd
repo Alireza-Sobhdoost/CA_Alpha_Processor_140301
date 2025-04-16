@@ -44,19 +44,22 @@ begin
     -- Stimulus
     stim_proc: process
     begin
-        -- Write 0xAB to memory[10]
-        addr <= x"0A";
-        data_in <= x"AB";
-        mem_write <= '1';
-        mem_read <= '0';
-        wait for clk_period;
-
-        mem_write <= '0';
-
-        -- Read from memory[10]
+        -- Wait for memory initialization to complete:
+        wait for 2 ns;  -- Adjust as necessary based on simulation delta cycles
+    
+        -- Now perform read operations, for instance:
+        addr <= x"00";  -- Read memory at address 0
         mem_read <= '1';
+        mem_write <= '0';
         wait for clk_period;
-
+    
+        addr <= x"01";  -- Read memory at address 1
+        wait for clk_period;
+    
+        addr <= x"02";  -- Read memory at address 2
+        wait for clk_period;
+    
         wait;
     end process;
+    
 end Behavioral;

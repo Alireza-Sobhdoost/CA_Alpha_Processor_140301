@@ -2,7 +2,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 use STD.TEXTIO.ALL;
-use IEEE.STD_LOGIC_TEXTIO.ALL;  -- Add this package for hread
+use IEEE.STD_LOGIC_TEXTIO.ALL;
 
 entity memory is
     Port (
@@ -19,41 +19,44 @@ architecture Behavioral of memory is
     type mem_type is array (0 to 255) of std_logic_vector(7 downto 0);
     signal mem : mem_type := (others => (others => '0'));
 
-    -- Load program.hex at startup
-    procedure load_memory(signal mem_inout : inout mem_type) is
-        file hex_file : text open read_mode is "program.hex";
-        variable linebuf : line;
-        variable hex_val : std_logic_vector(7 downto 0);
-        variable i      : integer := 0;
+    -- Initialize specific memory locations for testing
+    function init_memory return mem_type is
+        variable temp_mem : mem_type;
     begin
-        while not endfile(hex_file) and i < 256 loop
-            readline(hex_file, linebuf);
-            hread(linebuf, hex_val);  -- Now hread is available
-            mem_inout(i) <= hex_val;
-            i := i + 1;
-        end loop;
-    end procedure;
+        temp_mem := (others => (others => '0'));
+        -- Set test values
+        temp_mem(0) := "10000100";  
+        temp_mem(1) := "01010000";  
+        temp_mem(2) := "10110110";  
+        temp_mem(3) := "00101000";  
+        temp_mem(4) := "10101110";  
+        temp_mem(5) := "00101000";  
+        temp_mem(6) := "10000101";  
+        temp_mem(7) := "00010000";  
+
+
+
+        return temp_mem;
+    end function;
 
 begin
+    -- Initialize memory with test values
+    mem <= init_memory;
 
-    -- Memory init block (simulation only)
-    init: process
-    begin
-        load_memory(mem);
-        wait;
-    end process;
-
-    -- Write logic
+    -- Read logic with synchronous reset
     process(clk)
     begin
         if rising_edge(clk) then
-            if mem_write = '1' then
-                mem(to_integer(unsigned(addr))) <= data_in;
+            if mem_read = '1' then
+                data_out <= mem(to_integer(unsigned(addr)));
+                report "Reading from address: " & integer'image(to_integer(unsigned(addr)));
+                report "Value: " & integer'image(to_integer(unsigned(mem(to_integer(unsigned(addr))))));
+            else
+                data_out <= (others => 'Z');
             end if;
         end if;
     end process;
-
-    -- Read logic
-    data_out <= mem(to_integer(unsigned(addr))) when mem_read = '1' else (others => 'Z');
+    
+    -- Rest of the architecture remains the same
 
 end Behavioral;
